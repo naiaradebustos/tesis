@@ -1,0 +1,92 @@
+---
+title: "encuesta"
+author: "naiara"
+format: html
+editor: visual
+---
+
+## Librerías necesarias
+
+```{r}
+library(tidyverse)
+library(dplyr)
+```
+
+## ¿Cantidad necesaria?
+
+Vamos a ver si tenemos la muestra necesaria para hacer el análisis.
+
+```{r}
+encuesta <- "../data/encuesta_tesis.csv"
+datos_encuesta = read.csv(encuesta) %>% 
+  slice(-c(1, 2)) # Omite las filas 1 y 2
+head(datos_encuesta)
+```
+
+Construimos la variable explicativa: el party_id
+
+```{r}
+
+datos_encuesta <- datos_encuesta %>%
+  mutate(
+    party_id = case_when(
+    
+      # Condición para Libertarios: identifica LLA en Q5 O votó a Milei en Q6
+      Q5 == "La Libertad Avanza" | Q6 == "Javier Milei" ~ "Libertarios",
+      
+     # Condición para Peronistas: identifica Unión por la Patria en Q5 O votó a Massa en Q6
+      str_detect(Q5, "Unión por la Patria") | Q6 == "Sergio Massa" ~ "Peronistas",
+   
+     # No identificados (Específicamente quienes respondieron no identificarse)
+      Q5 == "No me identifico con ninguno" ~ "No Identificado",
+     
+      # Todo lo demás (PRO, UCR, Izquierda, Voto en blanco, NAs, etc.)
+      TRUE ~ "Resto"
+    )
+  )
+
+datos_encuesta %>% 
+  count(party_id)
+```
+
+Vamos a filtrar los NAs y la edad (va a quedar entre 18 y 29)
+
+```{r}
+  
+datos_filtrados <- datos_encuesta %>% 
+  # Convertimos Q1 a número y creamos la variable edad
+  mutate(edad = as.numeric(Q1)) %>% 
+  
+  # Filtramos el rango de edad y encuestas completas
+  filter(
+    edad >= 18 & edad <= 29,
+    Finished == "Verdadero" # Evalúa ambos formatos de Qualtrics
+  )
+
+# Verificar cuántas observaciones válidas quedaron
+nrow(datos_filtrados)
+```
+
+```{r}
+
+datos_filtrados <- datos_filtrados %>%
+  mutate(
+    party_id = case_when(
+    
+      # Condición para Libertarios: identifica LLA en Q5 O votó a Milei en Q6
+      Q5 == "La Libertad Avanza" | Q6 == "Javier Milei" ~ "Libertarios",
+      
+     # Condición para Peronistas: identifica Unión por la Patria en Q5 O votó a Massa en Q6
+      str_detect(Q5, "Unión por la Patria") | Q6 == "Sergio Massa" ~ "Peronistas",
+   
+     # No identificados (Específicamente quienes respondieron no identificarse)
+      Q5 == "No me identifico con ninguno" ~ "No Identificado",
+     
+      # Todo lo demás (PRO, UCR, Izquierda, Voto en blanco, NAs, etc.)
+      TRUE ~ "Resto"
+    )
+  )
+
+datos_filtrados %>% 
+  count(party_id)
+```
