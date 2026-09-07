@@ -13,12 +13,12 @@ datos_encuesta = read.csv(encuesta) %>%
   slice(-c(1, 2)) # Omite las filas 1 y 2
 head(datos_encuesta)
 
-# Filtramos: Vamos a filtrar los NAs y la edad (va a quedar entre 18 y 29) 
+# Filtramos: Vamos a filtrar los NAs y la edad (va a quedar entre 17 y 29) 
 datos_filtrados <- datos_encuesta %>% 
   # Convertimos Q1 a número y creamos la variable edad
   mutate(edad = as.numeric(Q1)) %>% 
   filter(
-    edad >= 18 & edad <= 29,
+    edad >= 17 & edad <= 29,
     Finished == "Verdadero" # Evalúa ambos formatos de Qualtrics
   )
 
@@ -37,6 +37,7 @@ mutate(
     !is.na(Q14) & Q14 != "" ~ "Prochoice_Control",
     TRUE ~ NA_character_
   ),
+  tratamiento = fct_relevel(tratamiento, "Pronatalista_Control", "Prochoice_Control"),
   
   # Consolidar Importancia de tener hijos según el tratamiento
   importancia_hijos_raw = case_when(
@@ -86,27 +87,27 @@ datos_limpios <- datos_limpios %>%
     party_id = case_when(
       # Libertarios: identifica LLA en Q5 O votó a Milei en Q6
       Q5 == "La Libertad Avanza" | Q6 == "Javier Milei" ~ "Libertarios",
+      
       # Peronistas: identifica Unión por la Patria en Q5 O votó a Massa en Q6
       str_detect(Q5, "Unión por la Patria") | Q6 == "Sergio Massa" ~ "Peronistas",
-      # No identificados (Específicamente quienes respondieron no identificarse)
-      Q5 == "No me identifico con ninguno" ~ "No Identificado",
-      # Todo lo demás (PRO, UCR, Izquierda, Voto en blanco, NAs, etc.)
-      TRUE ~ "Resto"
+      
+      # No identificados: quienes respondieron no identificarse + otros partidos
+      TRUE ~ "No Identificado"
     ),
   
     # Convertimos a Factor definiendo "No Identificado" como grupo de comparación base
-    party_id = factor(party_id, levels = c("No Identificado", "Libertarios", "Peronistas", "Resto"))
+    party_id = factor(party_id, levels = c("No Identificado", "Libertarios", "Peronistas"))
   )
 
-datos_limpios %>% count(party_id) 
+datos_limpios %>% count(party_id)# cuantos hay de cada grupo
   
-# --------------------------------------  
-# CODIFICAR DEMOGRÁFICAS Y RELIGIOSIDAD 
-# --------------------------------------
+# -----------------------------------------------      
+# CODIFICAR VARIABLES DEMOGRÁFICAS Y RELIGIOSIDAD 
+# -----------------------------------------------
 datos_analisis <- datos_limpios %>%
   mutate(
     edad = as.numeric(Q1),
-    
+    edad_c = edad - mean(edad, na.rm = TRUE),  # edad centrada, para interceptos interpretables
     genero = case_when(
       Q2 == "Mujer/Femenino" ~ "Mujer",
       Q2 == "Hombre/Masculino" ~ "Hombre",
@@ -119,21 +120,21 @@ datos_analisis <- datos_limpios %>%
 # --------------------------------------
 datos_analisis <- datos_analisis %>%
 mutate(
-  # Oportunidades iguales (Acuerdo = postura tradicional/conservadora)
+  # Oportunidades iguales (Acuerdo = conservador)
   p4_1_num = case_when(
     Q24_1 == "Totalmente de acuerdo" ~ 1,
     Q24_1 == "De acuerdo" ~ 2,
     Q24_1 == "En desacuerdo" ~ 3,
     Q24_1 == "Totalmente en desacuerdo" ~ 4
   ),
-  # Preocupación exagerada (Acuerdo = tradicional)
+  # Preocupación exagerada (Acuerdo = conservador)
   p4_2_num = case_when(
     Q24_2 == "Totalmente de acuerdo" ~ 1,
     Q24_2 == "De acuerdo" ~ 2,
     Q24_2 == "En desacuerdo" ~ 3,
     Q24_2 == "Totalmente en desacuerdo" ~ 4
   ),
-  # No se necesitan campañas (Acuerdo = tradicional)
+  # No se necesitan campañas (Acuerdo = conservador)
   p4_3_num = case_when(
     Q24_3 == "Totalmente de acuerdo" ~ 1,
     Q24_3 == "De acuerdo" ~ 2,
@@ -155,13 +156,12 @@ mutate(
     Q24_5 == "Totalmente en desacuerdo" ~ 1
   ),
   
-  # Religiosidad invertida (4 = Más secular/progresista, 1 = Más tradicional)
-  # (Ajusta 'Q5' o el nombre exacto de tu columna de religiosidad)
+  # Religiosidad (4 = Más secular/progresista, 1 = Más tradicional)
   p_religiosidad_num = case_when(
-    str_detect(Q5, "(?i)regularmente") ~ 1,
-    str_detect(Q5, "(?i)ocasionalmente") ~ 2,
-    str_detect(Q5, "(?i)raramente") ~ 3,
-    str_detect(Q5, "(?i)nunca") ~ 4,
+    str_detect(Q20, "(?i)Regularmente") ~ 1,
+    str_detect(Q20, "(?i)Ocasionalmente") ~ 2,
+    str_detect(Q20, "(?i)Raramente") ~ 3,
+    str_detect(Q20, "(?i)Nunca") ~ 4,
     TRUE ~ NA_real_
   )
 ) %>% 
@@ -190,6 +190,8 @@ if (!dir.exists(output_dir)) {
 }
 
 # Guardamos la base procesada directamente dentro de la carpeta output
-saveRDS(datos_analisis, file.path(output_dir, "datos_analisis_tesis.rds"))
+
+
+
 
 

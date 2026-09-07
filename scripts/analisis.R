@@ -9,7 +9,7 @@ library(here)
 library(broom)       # Para convertir outputs de regresiones a dataframes limpios
 library(modelsummary)# Para generar tablas de regresión tipo publicación
 library(ggplot2)
-install.packages("sjPlot")
+# install.packages("sjPlot")
 library(sjPlot)
 
 # Configurar tema visual estandarizado para los gráficos de la tesis
@@ -41,7 +41,8 @@ g_distribucion <- ggplot(datos, aes(x = tratamiento, fill = party_id)) +
   theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
 # Guardar gráfico en carpeta output
-ggsave(file.path(output_dir, "g1_distribucion_tratamiento.png"), g_distribucion, width = 8, height = 5)
+ggsave(file.path(output_dir, "g1_distribucion_tratamiento.png"), 
+       g_distribucion, width = 8, height = 5)
 
 
 ### Intención e importancia de tener hijos según tratamiento e identidad
@@ -60,6 +61,7 @@ resumen_intencion <- datos %>%
   )
 
 # Gráfico de puntos con barras de error
+# Porcentaje que responde que si quiere tener hijos
 g_intencion <- ggplot(resumen_intencion, aes(x = tratamiento, y = prop_si, color = party_id, group = party_id)) +
   geom_point(position = position_dodge(width = 0.4), size = 3) +
   geom_errorbar(
@@ -75,44 +77,46 @@ g_intencion <- ggplot(resumen_intencion, aes(x = tratamiento, y = prop_si, color
   ) +
   theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
-ggsave(file.path(output_dir, "g2_intencion_por_tratamiento.png"), g_intencion, width = 9, height = 5)
+ggsave(file.path(output_dir, "g2_intencion_por_tratamiento.png"), 
+       g_intencion, width = 9, height = 5)
+
+# Los libertarios dicen más que sí cuando el mensaje es de su partido
+# Los peronistas dicen más que no cuando el mensaje es de su partido
+# ambas respuestas suelen tener esta tendencia en las demás opciones, pero 
+# en ellas se potencia. 
 
 # ---------------------
 # MODELOS DE REGRESIÓN
 # ---------------------
 
-### Intención de tener hijos
+### INTENCIÓN
 
-# Modelo 1: Efecto principal del tratamiento
-m1_intencion <- glm(intencion_hijos ~ tratamiento, 
+# Modelo 1: Modelo sin tratamiento y con controles
+m1_intencion <- glm(intencion_hijos ~ party_id  + edad_c + genero , 
                     data = datos, family = binomial)
 
-# Modelo 2: Agregando Identidad Partidaria y Controles (Demográficos + Índice Sociocultural)
-m2_intencion <- glm(intencion_hijos ~ tratamiento + party_id + edad + genero + 
-                      indice_progresismo, data = datos, family = binomial)
+# Modelo 2: Interacción con tratamiento y partimos los modelos por mensaje
+m2A_intencion_choice <- glm(intencion_hijos ~ party_id  + edad_c + genero + tratamiento +
+                      party_id * tratamiento, 
+                     data = datos %>% filter( tratamiento %in% c("Prochoice_Peronistas", "Prochoice_Control")), family = binomial)
 
-# Modelo 3: Modelo de Interacción (Tratamiento * Identidad Partidaria)
-m3_intencion <- glm(intencion_hijos ~ tratamiento * party_id + edad + genero + 
-                      indice_progresismo, data = datos, family = binomial)
+m2B_intencion_nat <- glm(intencion_hijos ~ party_id  + edad_c + genero + tratamiento +
+                      party_id * tratamiento ,
+                     data = datos %>% filter(tratamiento %in% c("Pronatalista_Libertarios", "Pronatalista_Control")), family = binomial)
 
-# Ver resumen estadístico del modelo con interacción
-summary(m3_intencion)
+### IMPORTANCIA
 
+# Modelo 1: Modelo sin tratamiento y con controles
+m1_importancia <- lm(importancia_hijos ~ party_id + edad_c + genero, data = datos)
 
-### Importancia ed tener hijos
+# Modelo 2: Interacción con tratamiento y partimos los modelos por mensaje
+m2A_importancia_choice <- lm(importancia_hijos ~ party_id + tratamiento + edad_c + genero + 
+                               party_id * tratamiento, 
+                             data = datos%>% filter(tratamiento %in% c("Prochoice_Peronistas", "Prochoice_Control")))
 
-# Modelo 1: Efecto principal
-m1_importancia <- lm(importancia_hijos ~ tratamiento, data = datos)
-
-# Modelo 2: Con controles
-m2_importancia <- lm(importancia_hijos ~ tratamiento + party_id + edad + 
-                       genero + indice_progresismo, data = datos)
-
-# Modelo 3: Interacción entre Tratamiento y Partidismo
-m3_importancia <- lm(importancia_hijos ~ tratamiento * party_id + edad + 
-                       genero + indice_progresismo, data = datos)
-
-summary(m3_importancia)
+m2B_importancia_nat <- lm(importancia_hijos ~ party_id + tratamiento + edad_c + genero + 
+                            party_id * tratamiento,
+                      data = datos %>% filter(tratamiento %in% c("Pronatalista_Libertarios", "Pronatalista_Control")))
 
 # --------------------
 # TABLAS DE REGRESIÓN
@@ -120,36 +124,36 @@ summary(m3_importancia)
 
 ### INTENCIóN
 
-# Tabla comparativa de los modelos de Intención de Tener Hijos
+# Tabla 1: Intención de tener hijos
 models_intencion <- list(
-  "M1: Solo Tratamiento" = m1_intencion,
-  "M2: Con Controles"    = m2_intencion,
-  "M3: Interacción"      = m3_intencion
+  "M1: Sin tratamiento"     = m1_intencion,
+  "M2: Prochoice"           = m2A_intencion_choice,
+  "M2: Pronatalista"        = m2B_intencion_nat
 )
 
 modelsummary(
   models_intencion,
-  output = file.path(output_dir, "tabla_regresion_intencion.html"),  
-  exponentiate = TRUE, # Muestra Odds Ratios en vez de coeficientes logit
+  exponentiate = TRUE,
   stars = TRUE,
-  title = "Tabla X: Regresión Logística para Intención de Tener Hijos (Odds Ratios)"
+  title = "Regresión logística: Intención de tener hijos",
+#  output = file.path(output_dir, "tabla_intencion.html")
 )
 
 ### IMPORTANCIA
 
-# Tabla comparativa de los modelos de Importancia de Tener Hijos
+# Tabla 2: Actitud/importancia de tener hijos (todos modelos lineales → comparables entre sí)
 models_importancia <- list(
-  "M1: Solo Tratamiento" = m1_importancia,
-  "M2: Con Controles"    = m2_importancia,
-  "M3: Interacción"      = m3_importancia
+  "M1: Sin tratamiento"     = m1_importancia,
+  "M2: Prochoice"           = m2A_importancia_choice,
+  "M2: Pronatalista"        = m2B_importancia_nat
 )
 
 modelsummary(
   models_importancia,
-  output = file.path(output_dir, "tabla_regresion_importancia.html"),
-  exponentiate = FALSE, # FALSO para OLS / lm (muestra coeficientes directos, no Odds Ratios)
+  exponentiate = FALSE,
   stars = TRUE,
-  title = "Tabla Y: Regresión Lineal (OLS) para Importancia de Tener Hijos"
+  title = "Tabla Y: Regresión lineal (OLS) — Actitud hacia tener hijos",
+#  output = file.path(output_dir, "tabla_importancia.html")
 )
 
 # ----------------------------------
@@ -167,7 +171,8 @@ g_interaccion_intencion <- plot_model(
   axis.title = c("Tratamiento", "Probabilidad Predicha de Tener Hijos")
 ) + theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
-ggsave(file.path(output_dir, "g3_efectos_interaccion_intencion.png"), g_interaccion_intencion, width = 9, height = 6)
+ggsave(file.path(output_dir, "g3_efectos_interaccion_intencion.png"), 
+       g_interaccion_intencion, width = 9, height = 6)
 
 # Visualizar el rol moderador del Índice de Progresismo (Efecto Marginal)
 g_efecto_progresismo <- plot_model(
