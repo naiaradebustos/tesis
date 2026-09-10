@@ -11,6 +11,8 @@ library(modelsummary)# Para generar tablas de regresión tipo publicación
 library(ggplot2)
 # install.packages("sjPlot")
 library(sjPlot)
+# install.packages("marginaleffects")
+library(marginaleffects)
 
 # Configurar tema visual estandarizado para los gráficos de la tesis
 theme_set(theme_minimal(base_size = 12))
@@ -25,7 +27,7 @@ datos <- readRDS(file.path(output_dir, "datos_analisis_tesis.rds"))
 
 ### Tratamiento por party id
 
-# Tabla cruzada de recuentos
+# Tabla party id y tratamiento
 table_tratamiento_party <- table(datos$tratamiento, datos$party_id, useNA = "ifany")
 print(table_tratamiento_party)
 
@@ -33,7 +35,7 @@ print(table_tratamiento_party)
 g_distribucion <- ggplot(datos, aes(x = tratamiento, fill = party_id)) +
   geom_bar(position = "dodge") +
   labs(
-    title = "Distribución de participantes por grupo de tratamiento y filiación política",
+    title = "Distribución de participantes por grupo de tratamiento e identificación política",
     x = "Tratamiento asignado",
     y = "Cantidad de encuestados",
     fill = "Identidad Partidaria"
@@ -47,6 +49,7 @@ ggsave(file.path(output_dir, "g1_distribucion_tratamiento.png"),
 
 ### Intención e importancia de tener hijos según tratamiento e identidad
 
+# INTENCIÓN
 # Promedios por tratamiento e identidad partidaria
 resumen_intencion <- datos %>%
   filter(!is.na(party_id), !is.na(tratamiento), !is.na(intencion_hijos)) %>%
@@ -77,13 +80,48 @@ g_intencion <- ggplot(resumen_intencion, aes(x = tratamiento, y = prop_si, color
   ) +
   theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
-ggsave(file.path(output_dir, "g2_intencion_por_tratamiento.png"), 
+ggsave(file.path(output_dir, "g2a_intencion_por_tratamiento.png"), 
        g_intencion, width = 9, height = 5)
 
 # Los libertarios dicen más que sí cuando el mensaje es de su partido
 # Los peronistas dicen más que no cuando el mensaje es de su partido
 # ambas respuestas suelen tener esta tendencia en las demás opciones, pero 
 # en ellas se potencia. 
+
+
+# IMPORTANCIA
+# Promedios por tratamiento e identidad partidaria
+resumen_importancia <- datos %>%
+  filter(!is.na(party_id), !is.na(tratamiento), !is.na(importancia_hijos)) %>%
+  group_by(tratamiento, party_id) %>%
+  summarise(
+    media_importancia = mean(importancia_hijos, na.rm = TRUE),
+    n = n(),
+    sd = sd(importancia_hijos, na.rm = TRUE),
+    # Error estándar de la media (no de proporción, porque acá la variable no es binaria)
+    se = sd / sqrt(n),
+    .groups = "drop"
+  )
+
+# Gráfico de puntos con barras de error
+# Promedio de importancia asignada a tener hijos (escala 1-4)
+g_importancia <- ggplot(resumen_importancia, aes(x = tratamiento, y = media_importancia, color = party_id, group = party_id)) +
+  geom_point(position = position_dodge(width = 0.4), size = 3) +
+  geom_errorbar(
+    aes(ymin = media_importancia - 1.96 * se, ymax = media_importancia + 1.96 * se), 
+    position = position_dodge(width = 0.4), 
+    width = 0.2
+  ) +
+  labs(
+    title = "Importancia de tener hijos según Tratamiento e Identidad Partidaria",
+    x = "Tratamiento",
+    y = "Importancia promedio (escala 1-4)", # Cambiamos el eje Y
+    color = "Partido"
+  ) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+ggsave(file.path(output_dir, "g2b_importancia_por_tratamiento.png"), 
+       g_importancia, width = 9, height = 5)
 
 # ---------------------
 # MODELOS DE REGRESIÓN
@@ -96,13 +134,21 @@ m1_intencion <- glm(intencion_hijos ~ party_id  + edad_c + genero ,
                     data = datos, family = binomial)
 
 # Modelo 2: Interacción con tratamiento y partimos los modelos por mensaje
-m2A_intencion_choice <- glm(intencion_hijos ~ party_id  + edad_c + genero + tratamiento +
-                      party_id * tratamiento, 
-                     data = datos %>% filter( tratamiento %in% c("Prochoice_Peronistas", "Prochoice_Control")), family = binomial)
+m2A_intencion_choice <- glm(intencion_hijos ~ party_id + edad_c + genero + tratamiento +
+                              party_id * tratamiento, 
+                            data = datos %>% 
+                              filter(tratamiento %in% c("Prochoice_Peronistas", "Prochoice_Control")) %>%
+                              mutate(tratamiento = droplevels(tratamiento),
+                                     party_id = droplevels(party_id)),
+                            family = binomial)
 
-m2B_intencion_nat <- glm(intencion_hijos ~ party_id  + edad_c + genero + tratamiento +
-                      party_id * tratamiento ,
-                     data = datos %>% filter(tratamiento %in% c("Pronatalista_Libertarios", "Pronatalista_Control")), family = binomial)
+m2B_intencion_nat <- glm(intencion_hijos ~ party_id + edad_c + genero + tratamiento +
+                           party_id * tratamiento,
+                         data = datos %>% 
+                           filter(tratamiento %in% c("Pronatalista_Libertarios", "Pronatalista_Control")) %>%
+                           mutate(tratamiento = droplevels(tratamiento),
+                                  party_id = droplevels(party_id)),
+                         family = binomial)
 
 ### IMPORTANCIA
 
@@ -112,11 +158,17 @@ m1_importancia <- lm(importancia_hijos ~ party_id + edad_c + genero, data = dato
 # Modelo 2: Interacción con tratamiento y partimos los modelos por mensaje
 m2A_importancia_choice <- lm(importancia_hijos ~ party_id + tratamiento + edad_c + genero + 
                                party_id * tratamiento, 
-                             data = datos%>% filter(tratamiento %in% c("Prochoice_Peronistas", "Prochoice_Control")))
+                             data = datos%>% 
+                               filter(tratamiento %in% c("Prochoice_Peronistas", "Prochoice_Control")) %>%
+                               mutate(tratamiento = droplevels(tratamiento),
+                                      party_id = droplevels(party_id)))
 
 m2B_importancia_nat <- lm(importancia_hijos ~ party_id + tratamiento + edad_c + genero + 
                             party_id * tratamiento,
-                      data = datos %>% filter(tratamiento %in% c("Pronatalista_Libertarios", "Pronatalista_Control")))
+                      data = datos %>% 
+                        filter(tratamiento %in% c("Pronatalista_Libertarios", "Pronatalista_Control"))%>%
+                        mutate(tratamiento = droplevels(tratamiento),
+                               party_id = droplevels(party_id)))
 
 # --------------------
 # TABLAS DE REGRESIÓN
@@ -136,7 +188,7 @@ modelsummary(
   exponentiate = TRUE,
   stars = TRUE,
   title = "Regresión logística: Intención de tener hijos",
-#  output = file.path(output_dir, "tabla_intencion.html")
+#  output = file.path(output_dir, "tabla_intencion.png")
 )
 
 ### IMPORTANCIA
@@ -153,41 +205,115 @@ modelsummary(
   exponentiate = FALSE,
   stars = TRUE,
   title = "Tabla Y: Regresión lineal (OLS) — Actitud hacia tener hijos",
-#  output = file.path(output_dir, "tabla_importancia.html")
+#  output = file.path(output_dir, "tabla_importancia.png")
 )
 
-# ----------------------------------
-# EFECTOS MARGINALES E INTERACCIONES
-# ----------------------------------
+# ------------------
+# EFECTOS MARGINALES 
+# ------------------
+
+# Efecto marginal del tratamiento, separado por party_id
 
 ### INTENCIóN
 
-# Visualizar probabilidades predichas de la interacción (Modelo 3 Logístico)
-g_interaccion_intencion <- plot_model(
-  m3_intencion, 
-  type = "pred", 
-  terms = c("tratamiento", "party_id"),
-  title = "Efecto interactivo entre Tratamiento y Partidismo en la Intención de Tener Hijos",
-  axis.title = c("Tratamiento", "Probabilidad Predicha de Tener Hijos")
-) + theme(axis.text.x = element_text(angle = 30, hjust = 1))
-
-ggsave(file.path(output_dir, "g3_efectos_interaccion_intencion.png"), 
-       g_interaccion_intencion, width = 9, height = 6)
-
-# Visualizar el rol moderador del Índice de Progresismo (Efecto Marginal)
-g_efecto_progresismo <- plot_model(
-  m2_intencion,
-  type = "pred",
-  terms = "indice_progresismo",
-  title = "Probabilidad Predicha de Intención de Tener Hijos según Índice de Progresismo",
-  axis.title = c("Índice de Progresismo (1 = Tradicional, 4 = Progresista)", "Probabilidad Predicha")
+# choice
+em_intencion_choice <- avg_comparisons(
+  m2A_intencion_choice,
+  variables = "tratamiento",
+  by = "party_id"
 )
+print(em_intencion_choice)
 
-ggsave(file.path(output_dir, "g4_efecto_progresismo.png"), g_efecto_progresismo, width = 7, height = 5)
+# natalidad
+em_intencion_nat <- avg_comparisons(
+  m2B_intencion_nat,
+  variables = "tratamiento",
+  by = "party_id"
+)
+print(em_intencion_nat)
+
+### IMPORTANCIA
+
+# choice
+em_importancia_choice <- avg_comparisons(
+  m2A_importancia_choice,
+  variables = "tratamiento",
+  by = "party_id"
+)
+print(em_importancia_choice)
+
+# natalidad
+em_importancia_nat <- avg_comparisons(
+  m2B_importancia_nat,
+  variables = "tratamiento",
+  by = "party_id"
+)
+print(em_importancia_nat)
+
+# --------
+# GRÁFICOS
+# --------
+
+# --- Intención, mensaje Prochoice ---
+g_efecto_intencion_choice <- plot_comparisons(
+  m2A_intencion_choice, 
+  variables = "tratamiento", 
+  by = "party_id"
+) +
+  labs(
+    title = "Efecto marginal del tratamiento sobre la intención de tener hijos",
+    subtitle = "Comparación: Prochoice_Peronistas vs. Prochoice_Control",
+    x = "Identidad Partidaria",
+    y = "Diferencia en probabilidad predicha"
+  )
+ggsave(file.path(output_dir, "g3a_efecto_intencion_choice.png"), 
+       g_efecto_intencion_choice, width = 7, height = 5)
+
+# --- Intención, mensaje Pronatalista ---
+g_efecto_intencion_nat <- plot_comparisons(
+  m2B_intencion_nat, 
+  variables = "tratamiento", 
+  by = "party_id"
+) +
+  labs(
+    title = "Efecto marginal del tratamiento sobre la intención de tener hijos",
+    subtitle = "Comparación: Pronatalista_Libertarios vs. Pronatalista_Control",
+    x = "Identidad Partidaria",
+    y = "Diferencia en probabilidad predicha"
+  )
+ggsave(file.path(output_dir, "g3b_efecto_intencion_nat.png"), 
+       g_efecto_intencion_nat, width = 7, height = 5)
 
 
+# --- Importancia, mensaje Prochoice ---
+g_efecto_importancia_choice <- plot_comparisons(
+  m2A_importancia_choice, 
+  variables = "tratamiento", 
+  by = "party_id"
+) +
+  labs(
+    title = "Efecto marginal del tratamiento sobre la importancia de tener hijos",
+    subtitle = "Comparación: Prochoice_Peronistas vs. Prochoice_Control",
+    x = "Identidad Partidaria",
+    y = "Diferencia en escala de importancia (1-4)"
+  )
+ggsave(file.path(output_dir, "g3c_efecto_importancia_choice.png"), 
+       g_efecto_importancia_choice, width = 7, height = 5)
 
-
+# --- Importancia, mensaje Pronatalista ---
+g_efecto_importancia_nat <- plot_comparisons(
+  m2B_importancia_nat, 
+  variables = "tratamiento", 
+  by = "party_id"
+) +
+  labs(
+    title = "Efecto marginal del tratamiento sobre la importancia de tener hijos",
+    subtitle = "Comparación: Pronatalista_Libertarios vs. Pronatalista_Control",
+    x = "Identidad Partidaria",
+    y = "Diferencia en escala de importancia (1-4)"
+  )
+ggsave(file.path(output_dir, "g3d_efecto_importancia_nat.png"), 
+       g_efecto_importancia_nat, width = 7, height = 5)
 
 
 

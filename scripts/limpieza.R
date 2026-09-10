@@ -190,7 +190,7 @@ if (!dir.exists(output_dir)) {
 }
 
 # Guardamos la base procesada directamente dentro de la carpeta output
-
+saveRDS(datos_analisis, file.path(output_dir, "datos_analisis_tesis.rds"))
 
 
 
